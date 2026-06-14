@@ -4,15 +4,15 @@ Auth routes: register, login, Google SSO, /me endpoint.
 
 import json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from pydantic import BaseModel, EmailStr
 from sqlmodel import Session, select
 
 from database import get_session
 from models import User, Profile
 from auth import (
-    hash_password, verify_password, create_access_token,
-    get_current_user, verify_google_token,
+    hash_password, verify_password, create_access_token, create_refresh_token,
+    get_current_user, verify_google_token, decode_token
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -59,9 +59,19 @@ def user_to_dict(user: User) -> dict:
         "emails_sent_this_month": user.emails_sent_this_month,
     }
 
+def set_refresh_cookie(response: Response, user_id: int):
+    refresh_token = create_refresh_token(user_id)
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=False,  # Set to True in production (HTTPS)
+        samesite="lax",
+        max_age=7 * 24 * 60 * 60, # 7 days
+    )
 
 @router.post("/register", response_model=AuthResponse)
-async def register(req: RegisterRequest, session: Session = Depends(get_session)):
+async def register(req: RegisterRequest, response: Response, session: Session = Depends(get_session)):
     # Check if email exists
     existing = session.exec(select(User).where(User.email == req.email)).first()
     if existing:
@@ -85,11 +95,12 @@ async def register(req: RegisterRequest, session: Session = Depends(get_session)
     session.commit()
 
     token = create_access_token(user.id)
+    set_refresh_cookie(response, user.id)
     return {"token": token, "user": user_to_dict(user)}
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(req: LoginRequest, session: Session = Depends(get_session)):
+async def login(req: LoginRequest, response: Response, session: Session = Depends(get_session)):
     user = session.exec(select(User).where(User.email == req.email)).first()
     if not user or not user.hashed_password:
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -98,11 +109,12 @@ async def login(req: LoginRequest, session: Session = Depends(get_session)):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     token = create_access_token(user.id)
+    set_refresh_cookie(response, user.id)
     return {"token": token, "user": user_to_dict(user)}
 
 
 @router.post("/google", response_model=AuthResponse)
-async def google_auth(req: GoogleAuthRequest, session: Session = Depends(get_session)):
+async def google_auth(req: GoogleAuthRequest, response: Response, session: Session = Depends(get_session)):
     """Handle Google Sign-In: create or login user."""
     google_data = await verify_google_token(req.credential)
 
@@ -140,7 +152,37 @@ async def google_auth(req: GoogleAuthRequest, session: Session = Depends(get_ses
         session.commit()
 
     token = create_access_token(user.id)
+    set_refresh_cookie(response, user.id)
     return {"token": token, "user": user_to_dict(user)}
+
+
+@router.post("/refresh")
+async def refresh_token(request: Request, response: Response, session: Session = Depends(get_session)):
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="No refresh token found")
+    
+    user_id = decode_token(refresh_token, expected_type="refresh")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+        
+    # Issue a new access token
+    new_access_token = create_access_token(user.id)
+    
+    # Optionally rotate the refresh token
+    set_refresh_cookie(response, user.id)
+    
+    return {"token": new_access_token}
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie("refresh_token", httponly=True, samesite="lax")
+    return {"message": "Logged out successfully"}
 
 
 @router.get("/me", response_model=UserResponse)

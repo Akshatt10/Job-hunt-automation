@@ -12,12 +12,9 @@ export function AuthProvider({ children }) {
   }, []);
 
   async function checkAuth() {
-    const token = api.getToken();
-    if (!token) {
-      setLoading(false);
-      return;
-    }
     try {
+      // Even if localStorage token is missing, the API client interceptor 
+      // will automatically attempt to refresh using the HttpOnly cookie.
       const userData = await api.get('/auth/me');
       setUser(userData);
     } catch {
@@ -48,7 +45,12 @@ export function AuthProvider({ children }) {
     return data;
   }
 
-  function logout() {
+  async function logout() {
+    try {
+      await api.post('/auth/logout');
+    } catch (e) {
+      console.error('Logout failed on backend:', e);
+    }
     api.clearToken();
     setUser(null);
   }
