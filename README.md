@@ -1,143 +1,95 @@
-# 🚀 Offline-First Job Hunt Automation
+# 🚀 NoFluffMail: Anti-Cliché AI Cold Email Automation
 
-An end-to-end automated cold email pipeline for job hunting that runs **100% locally** on your machine. You simply export a CSV of leads from Apollo.io, and the system seamlessly generates hyper-personalized emails using a **local LLM** (Ollama/Llama 3.1) and sends them with your physical resume attached — all orchestrated automatically by **n8n**.
+**NoFluffMail** is an end-to-end automated cold email platform for job hunting, networking, and outreach. Unlike generic AI wrappers, it generates hyper-personalized, "no-fluff" emails based on your unique career profile and the specific details of your target leads.
 
 ```text
 ┌─────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Upload CSV     │────▶│ n8n          │────▶│ Email        │────▶│ Email Sender │
-│ (Apollo Leads)  │     │ Scheduler    │     │ Generator    │     │ (SMTP/Gmail) │
-└─────────────────┘     └──────────────┘     │ (Ollama LLM) │     └──────────────┘
-                                             └──────────────┘
+│  Upload CSV     │────▶│ FastAPI      │────▶│ LangChain    │────▶│ Email Sender │
+│ (Apollo Leads)  │     │ Backend DB   │     │ (AI Gen)     │     │ (SMTP/Gmail) │
+└─────────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
+         ▲                                                               │
+         │                      ┌──────────────┐                         │
+         └──────────────────────│ React Web UI │◀────────────────────────┘
+                                └──────────────┘
 ```
 
 ---
 
-## 📋 Prerequisites
+## 📋 Features
 
-- **Docker** & **Docker Compose** (v2+)
-- **macOS** (tested on M-series Apple Silicon) or Linux
-- **Ollama Desktop** (optional but recommended for stability)
-- **SMTP credentials** (e.g., Gmail App Password)
+- **Web Dashboard**: A beautiful, minimalist React UI to manage your outreach.
+- **AI Personalization**: Uses advanced LLMs (Gemini / OpenAI fallback) to draft emails that sound like a real human wrote them.
+- **CSV Ingestion**: Upload lists straight from Apollo.io. The backend automatically extracts columns and dedupers contacts.
+- **Smart SMTP**: Connects directly to your Gmail. Features built-in rate-limiting and delay randomization to protect your email reputation.
+- **Subscription Management**: Integrated Razorpay checkout for Pro tiers.
 
 ---
 
 ## ⚡ Quick Start
 
-### 1. Clone & configure environment
+### 1. Clone & Configure Environment
 
 ```bash
-git clone <your-repo-url> job-automation
+git clone <your-repo-url> no-fluff-mail
 cd "job automation"
-cp .env.example .env
-cp config.example.yaml config.yaml
 ```
 
-Open `.env` and fill in your SMTP credentials:
+You'll need two terminals open—one for the backend, one for the frontend.
 
+### 2. Backend Setup (FastAPI)
+
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Create a `.env` file in the `backend/` directory:
 ```env
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your_email@gmail.com
-# IMPORTANT: Remove all spaces from the Google App password if you copy it!
-SMTP_PASS=your_gmail_app_password     
-DRY_RUN=true                          # set to false when ready to send real emails
+# AI Keys
+GEMINI_API_KEY=your_gemini_key_here
+# OPENAI_API_KEY=optional_fallback_key
+
+# Payment Keys
+RAZORPAY_KEY_ID=rzp_test_placeholder
+RAZORPAY_KEY_SECRET=placeholder_secret
+
+# Security
+JWT_SECRET_KEY=generate_a_random_secure_string
 ```
 
-> **Gmail Users**: You must generate an [App Password](https://myaccount.google.com/apppasswords) (requires 2FA enabled). Your normal Gmail password will NOT work.
-
-### 2. Add your resume & profile context
-
-1. **Resume PDF**: Copy your resume to the assets folder:
-   ```bash
-   cp /path/to/your/resume.pdf assets/resume.pdf
-   ```
-2. **Profile Configuration**: Open `config.yaml` and update your personal details (name, skills, GitHub, bio, projects). The Artificial Intelligence uses this file as its "brain" to personalize every single email.
-
-### 3. Start the stack
-
+Run the backend:
 ```bash
-docker compose up -d --build
+uvicorn main:app --reload
 ```
+The API is now running at `http://localhost:8000`.
 
-### 4. Setup Llama 3.1 (Local AI)
+### 3. Frontend Setup (React/Vite)
 
+Open a new terminal:
 ```bash
-docker exec -it ollama_llm ollama pull llama3.1:8b
+cd frontend
+npm install
+npm run dev
 ```
-*(This downloads ~4.7 GB. You only need to do this once — the model persists natively on your machine).*
 
-### 5. Ingest your Apollo Leads
+The Web UI is now running at `http://localhost:5173`.
 
-1. Go to [Apollo.io](https://www.apollo.io), build a list of target companies/recruiters, and click **Export CSV**.
-2. Drag and drop that `.csv` file into the **`ingest/`** folder in this project directory.
-3. Wait ~60 seconds. The system will automatically detect the file, digest the CSV into the local database (skipping duplicates), and rename the file to `.processed`.
+---
 
-### 6. Import the n8n logic
+## 🛠️ Usage
 
-1. Open [http://localhost:5678](http://localhost:5678)
-2. Log in with the credentials from your `.env` (default: `admin` / `admin123`)
-3. Click **"Add workflow"** → **⋯ menu** → **"Import from file"**
-4. Select `n8n_workflows/workflow.json`
-5. Click the toggle switch at the top right to **"Active"** to enable your nightly schedule!
+1. **Register**: Open the web app and create an account.
+2. **Onboarding**: Complete the multi-step wizard. Here, you'll set your target role, input your bio, and save your Gmail App Password.
+3. **Upload Leads**: Go to the Dashboard and upload an Apollo.io CSV.
+4. **Launch**: Review your pending contacts and click start. The system will process each lead, draft the email, and send it through your connected inbox.
 
 ---
 
 ## 🔧 Architecture & Privacy
 
-This system was deliberately refactored from a cloud-based API scraper into a **Strictly Offline Pipeline** for two reasons:
-1. **Privacy**: Your resume data and contact lists never leave your local machine (no OpenAI ingestion).
-2. **Cost**: You incur $0 in API costs.
+- **Strictly Separated**: Your data (profiles, contacts, logs) is securely stored in a local SQLite database (`coldreach.db`) isolated per user via JWT authentication.
+- **No n8n or Docker required**: We refactored the original microservice/n8n architecture into a cohesive, monolithic FastAPI REST service for faster execution and a much better User Experience.
 
-### The Microservices
-
-| Service | Tech | Description |
-|---|---|---|
-| **Contacts Queue** | FastAPI + SQLite | Exposes an `/upload-csv` ingestion endpoint and stores contacts securely in an offline database. Feeds `pending` contacts to n8n batch-by-batch. |
-| **Email Generator** | FastAPI + LangChain + Ollama | Merges the contact's Apollo keywords with your `config.yaml` profile to generate hyper-personalized cold emails using Llama 3.1. |
-| **Email Sender** | FastAPI + smtplib | Wraps the generated email in proper UTF-8 headers, physically attaches `assets/resume.pdf`, checks daily rate limits to protect your Gmail reputation, and sends the email. |
-| **n8n** | Node.js | The visual orchestrator. Coordinates the 1-by-1 processing loop, handles success/failure routing, and triggers the schedule. |
-
----
-
-## 🧪 Testing
-
-### Dry-run mode (default)
-Always ensure `DRY_RUN=true` is set in your `.env` when you install the project. In dry-run mode, the AI will generate the email, but the Sender will only print the result to the console instead of firing it over SMTP.
-
-If you want to read what the AI drafted without checking logs, you can ping the generator directly:
-```bash
-curl -X POST http://localhost:8001/generate-email \
-  -H "Content-Type: application/json" \
-  -d '{
-        "name": "Jane Doe",
-        "email": "jane@apple.com",
-        "company": "Apple",
-        "title": "Engineering Manager",
-        "company_description": "Consumer electronics, computer software, machine learning"
-      }'
-```
-
----
-
-## 🛑 Operations
-
-```bash
-# Monitor the rate-limit quota and daily sends
-curl http://localhost:8002/stats
-
-# Check how many leads are pending vs sent
-curl "http://localhost:8000/contacts?status=pending"
-
-# Shut down the automation suite
-docker compose down
-```
-
----
-
-## ⚠️ Important Notes
-
-- **Google UI Bug:** Never copy a Google App Password directly into `.env` without deleting the spaces first. Google's web UI uses invisible Unicode spaces that will crash the Python `smtplib` encoder.
-- **Rate Limiting**: The default is 50 emails/day (hard stop). You can change this via `DAILY_LIMIT` in `.env`. Google naturally caps personal Gmails at ~500 sends/day, so stay well below that to prevent spam algorithms from flagging your account.
-- **Fail-Safes**: If you restart the script, contacts with `status=sent` are inherently skipped. The same email address can never be uploaded to the database twice. 
-
-Happy hunting!
+Happy Hunting!

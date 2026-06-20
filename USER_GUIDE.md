@@ -1,87 +1,74 @@
-# 📖 USER GUIDE: Automated Cold Email Masterclass
+# 📖 USER GUIDE: NoFluffMail
 
-Welcome! Whether you are a first-time user or an automation expert, this guide will walk you through exactly how to keep this system running like a well-oiled machine.
-
----
-
-## 🏗️ 1. The "Day 0" Setup (One-Time)
-
-Before you send your first email, you need to make sure the environment is ready.
-
-### Step 1: Install the Giants
-1. **Docker Desktop**: [Download here](https://www.docker.com/products/docker-desktop/). This is the "Engine" that runs your 6 microservices.
-2. **Ollama**: [Download here](https://ollama.com/). This is the "Brain" that runs your local AI.
-
-### Step 2: The .env Secret
-Rename `.env.example` to `.env` and fill in your details. 
-> [!CAUTION]
-> **Gmail App Passwords**: When you generate a password from Google, it will look like `xxxx xxxx xxxx xxxx`. **Remove all spaces** before pasting it into your `.env` file (e.g., `xxxxxxxxxxxxxxxx`). Standard Python tools will crash if those spaces are present!
-
-### Step 3: Add your Resume & Context
-1. **The PDF**: Replace `assets/resume.pdf` with your actual resume.
-2. **The Bio**: Open `config.yaml` and update your skills, projects, and bio. This is what the AI uses to draft your emails!
-
-### Step 4: Boot the System
-```bash
-docker compose up -d --build
-docker exec -it ollama_llm ollama pull llama3.1:8b
-```
+Welcome to NoFluffMail! This guide will walk you through exactly how to set up your account, connect your email, and launch your first AI-powered outreach campaign directly from your browser.
 
 ---
 
-## 🏃 2. The Daily Routine (Fluent Workflow)
+## 🏗️ 1. First-Time Setup (The Onboarding Wizard)
 
-This is how you use the system every day to get new job leads.
+When you first launch the application and register an account, you will be greeted by the Onboarding Wizard. This only takes 2 minutes and tells the AI everything it needs to know to write your emails.
 
-### Phase 1: Finding Leads (Apollo.io)
+### Step 1: Your Profile
+Fill out your name, your target role (e.g., "Senior Frontend Engineer"), and paste a short bio.
+*Pro Tip: Treat the Bio section like a prompt. If you want the AI to emphasize your Next.js experience, write "I have 5 years of Next.js experience" in the bio.*
+
+### Step 2: Email Connection (Gmail)
+NoFluffMail sends emails directly from your Gmail account so they look authentic.
+
+> [!IMPORTANT]
+> **Gmail App Passwords**: Because of Google's security, you cannot use your normal Gmail password. 
+> 1. Go to your [Google Account Security settings](https://myaccount.google.com/security).
+> 2. Turn on 2-Step Verification.
+> 3. Search for "App Passwords" and create a new one called "NoFluffMail".
+> 4. Google will give you a 16-letter password (`xxxx xxxx xxxx xxxx`). 
+> 5. **CRITICAL**: Remove all the spaces before pasting it into NoFluffMail! (e.g., `xxxxxxxxxxxxxxxx`).
+
+Once you click "Verify," the system will send a test ping to ensure the connection works.
+
+---
+
+## 🏃 2. Launching a Campaign
+
+Once your profile is set, you'll be dropped into the Dashboard.
+
+### Step 1: Export Leads from Apollo
 1. Go to [Apollo.io Search](https://app.apollo.io/#/people).
-2. Filter for: 
-   - **Job Titles**: "Engineering Manager", "HR", "Recruiter", etc.
-   - **Industry**: (e.g., "AI", "SaaS", "Fintech").
-   - **Email Status**: "Verified".
-3. Export the list to a **CSV**.
+2. Filter your target audience (e.g., "Engineering Managers in London").
+3. Ensure their email status is "Verified".
+4. Export the list to a **CSV** file.
 
-### Phase 2: The "Hot Folder" Ingest
-Instead of using complex commands, just **Drag and Drop** your new Apollo CSV into the **`ingest/`** folder in your project directory. 
-- Wait 60 seconds.
-- The system will automatically detect the file, import the leads, and rename the file to `.processed`.
-- **Done!** Your leads are now in the queue.
+### Step 2: Upload
+On the NoFluffMail Dashboard, click **Import Contacts**. Select the CSV you just downloaded. The system will automatically map the names and emails and ignore any duplicates.
 
-### Phase 3: The 10:30 PM Run
-- Make sure your laptop is open and Docker is running.
-- At **10:30 PM IST**, the n8n scheduler will wake up.
-- It will pull 50 leads from the database, have the AI write personalized emails, and send them via Gmail.
+### Step 3: Run Outreach
+Click the **Start Campaign** button. 
+- The backend will fetch your leads one by one.
+- The AI will read the contact's company description and your profile.
+- It will draft a hyper-personalized, "no-fluff" email.
+- It will send it via your Gmail.
 
 ---
 
-## 📊 3. Monitoring & Maintenance
+## 💳 3. Billing & Limits
 
-### Check your Stats
-Want to see how many you've sent today? Open your browser to:
-[http://localhost:8002/stats](http://localhost:8002/stats)
+### The Free Tier
+By default, new users are placed on the **Free Tier**. To protect your email reputation and our AI costs, this limits you to **50 total emails**.
 
-### Verify what the AI is writing
-If you want to see a "Live Preview" of what the AI is thinking, run this:
-```bash
-docker logs email_gen --tail 20
-```
-
-### Swapping AI Models
-- **Local (Default)**: Uses Llama 3.1 8B (Free).
-- **Cloud**: Add an `OPENAI_API_KEY` to your `.env` file. The system will automatically detect the key and switch to **GPT-4o-mini** for even faster generation.
+### Upgrading to Pro
+If you need higher volume:
+1. Navigate to the **Billing** tab in the sidebar.
+2. Click **Upgrade to Pro**.
+3. A secure Razorpay checkout window will appear.
+4. Complete the $10/mo transaction.
+5. Your limit is instantly raised to **1,000 emails per month**.
 
 ---
 
 ## 🛠️ 4. Troubleshooting 101
 
-- **"Emails aren't sending!"**: Check if `DRY_RUN=true` is in your `.env`. If it's true, it's just practicing! Set it to `false` for real outreach.
-- **"The service is slow!"**: Large AI models take 1-2 minutes per email. This is normal behavior for local machines.
-- **"I need to stop the automation!"**:
-  ```bash
-  docker compose down
-  ```
-
----
+- **"The AI generation is taking too long!"**: LLM calls take roughly 5-10 seconds per email. This deliberate pacing actually helps your email deliverability by avoiding Gmail's spam-detection algorithms.
+- **"Authentication Failed on SMTP"**: Double check that you removed the spaces from your Google App Password.
+- **"Emails are bouncing"**: Ensure you are only exporting "Verified" emails from Apollo. If your bounce rate goes over 5%, Google may temporarily restrict your inbox.
 
 > [!TIP]
-> **Pro-Tip**: Every week, update your `config.yaml` with a new "Interests" section or a new project you just finished. This keeps your AI-generated emails fresh and relevant to the current market!
+> **Keep your Profile fresh**: Re-run the onboarding wizard via your Settings anytime you finish a new project. The AI will immediately start including that new project in its outbound emails!
