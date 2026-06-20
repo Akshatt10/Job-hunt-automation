@@ -1,80 +1,72 @@
-# TECHNICAL SPECIFICATION: Automated Cold Email Engine
+# TECHNICAL SPECIFICATION: NoFluffMail
 
-This document provides a deep-dive into the architecture, design decisions, and implementation details of the Automated Cold Email system. It is intended for developers and engineers who want to understand, maintain, or scale this platform.
+This document provides a deep-dive into the architecture, design decisions, and implementation details of the NoFluffMail platform. It is intended for developers and engineers who want to understand, maintain, or scale this codebase.
 
 ---
 
 ## 1. System Design Philosophy
 
-The core of this project is built on **Decoupled Microservices**. Instead of a single, monolithic script, we use separate specialized containers.
+The core of this project is built on a **Modern Full-Stack Architecture** utilizing React for the frontend and FastAPI for the backend. 
 
-### Why Microservices?
-- **Isolation**: If the Email Sender crashes (e.g., due to an SMTP error), it doesn't stop the Contacts Service from ingesting new leads.
-- **Resource Management**: The `ollama_llm` container is extremely heavy (8GB+ RAM). By keeping it separate, we can restart or upgrade it without touching the business logic.
-- **Scalability**: We could theoretically run 10 instances of `email_gen` across different machines if we needed to process 10,000 emails per hour.
+*Note: In previous versions, this project relied on n8n and Docker Compose microservices. We have since refactored into a monolithic API structure to provide a seamless Web UI and significantly reduce operational complexity for the end user.*
 
-### Why n8n?
-n8n acts as the **System Brain (Orchestrator)**. It is essentially a "Visual State Machine." It handles:
-- **Scheduling**: The "Cron" trigger that wakes up the system.
-- **Flow Control**: The `ForEach` loop that ensures we process contacts one-by-one.
-- **Error Handling**: Branching logic that marks a contact as `failed` if an HTTP call returns anything other than a `200 OK`.
+### Why React + FastAPI?
+- **Speed**: FastAPI provides incredible performance with asynchronous Python, making it perfect for handling LLM network calls and database I/O concurrently.
+- **State Management**: React allows us to build complex, multi-step onboarding wizards and real-time campaign dashboards.
+- **Authentication**: A monolithic API allows for secure, stateful JWT session management compared to headless cron jobs.
 
 ---
 
-## 2. Microservice Deep-Dive
+## 2. Backend Deep-Dive (FastAPI)
 
-### 2.1 Contacts Service (`contacts_svc` - Port 8000)
-**Role**: Data Persistence and Queue Management.
+### 2.1 Database & ORM
+- **Storage**: Uses **SQLite** (`coldreach.db`) managed via **SQLModel** (a wrapper around SQLAlchemy and Pydantic). 
+- **Core Models**:
+  - `User`: Handles authentication (bcrypt password hashing) and subscription tiers (`free` vs `pro`).
+  - `Profile`: Belongs to a User. Stores their career context (skills, bio, target role) and SMTP credentials securely.
+  - `Contact`: Belongs to a User. Stores the target leads (email, company, name). Deduplication is enforced at the database level by uniquely compounding `(user_id, email)`.
 
-- **Storage**: Uses **SQLite3**. Unlike a complex database like PostgreSQL, SQLite is a single file (`contacts.db`). This makes it perfect for local automation.
-- **CSV Ingestion Algorithm**: 
-    1. The `/upload-csv` endpoint receives an Apollo export.
-    2. It uses Python's native `csv.DictReader` to map column headers (`First Name`, `Email`, etc.) to our internal Schema.
-    3. It performs an `INSERT OR IGNORE` operation. This is our **de-duplication engine**—the `email` column is marked as `UNIQUE`, so the same lead is never added twice.
-- **Queue Logic**: n8n hits `/fetch-contacts` with a `limit` (e.g., 50). The service runs `SELECT * FROM contacts WHERE status = 'pending'`. This ensures we always pick up where we left off.
+### 2.2 The AI Generation Engine
+- **Framework**: **LangChain**.
+- **Model Routing**: Uses Gemini Pro as the primary generative model. If configured in the `.env`, it can easily fall back to OpenAI.
+- **Prompt Architecture**: 
+  - The System Prompt strictly enforces the "No Fluff" persona—avoiding standard cliches ("I hope this email finds you well").
+  - The Context Injection merges the `User.Profile` data with the specific `Contact` data, feeding a dense prompt to the LLM.
+- **Output Parsing**: The LLM output is strictly parsed via Pydantic/Langchain JsonParsers to guarantee `subject` and `body` keys.
 
-### 2.2 Email Generator (`email_gen` - Port 8001)
-**Role**: Personalization Logic (LLM Interface).
-
-- **Framework**: **LangChain**. We use LangChain to manage the interaction between our Python code and the Ollama model.
-- **Prompt Engineering**: 
-    - The **System Prompt** defines the persona ("Professional Job Seeker"). 
-    - The **Context Injection** reads your `config.yaml` at startup. This context is sent with every single request to the LLM, ensuring the AI "knows" your career history.
-- **JSON Enforcement**: We use a `JsonOutputParser`. This is critical. The LLM must return a valid JSON object with `subject` and `body` keys so that n8n can programmatically read them.
-
-### 2.3 Email Sender (`email_send` - Port 8002)
-**Role**: Delivery and Compliance.
-
-- **SMTP Protocol**: Uses `smtplib` and `email.mime`. 
-    - **Header UTF-8 Encoding**: We use `email.header.Header` to ensure non-ASCII characters in subjects don't crash the server.
-- **Attachment Logic**: It dynamically reads `/app/assets/resume.pdf` from the container's volume and encodes it as Base64 (MIME application/pdf) for the email.
-- **Rate Limiting**: 
-    - Stores state in `rate_limiter.json`. 
-    - Before every send, it checks if `today_count < DAILY_LIMIT`. 
-    - This is the most important "Security" feature to prevent your Gmail account from being flagged for spam.
+### 2.3 Payments (Razorpay)
+- **Integration**: Found in `routers/payments.py`.
+- **Flow**:
+  1. Frontend requests an `order_id` for a specific amount.
+  2. Backend securely creates the order via the `razorpay` Python SDK.
+  3. Frontend opens the Razorpay native UI.
+  4. Upon success, frontend posts the cryptographic signature to `/verify`. The backend validates the SHA256 HMAC before upgrading the `User.subscription_tier`.
 
 ---
 
-## 3. Network Topology
+## 3. Frontend Deep-Dive (React / Vite)
 
-All services are connected via a Docker Virtual Network called `automation_net`. 
+### 3.1 Authentication Strategy
+- **ApiClient (`src/api/client.js`)**: A custom fetch wrapper that automatically attaches the JWT token to the `Authorization` header.
+- **Silent Refresh**: It intercepts `401 Unauthorized` responses, calls the `/auth/refresh` endpoint using HttpOnly cookies (if configured) or a refresh token, updates the state, and seamlessly replays the failed request.
 
-- **Internal DNS**: Inside the network, services talk to each other using their service names (`http://email_gen:8001`) rather than local IP addresses.
-- **External Access**: Only `n8n` (5678) and the service ports (8000, 8001, 8002) are mapped to your Mac's `localhost`. The `ollama` and `n8n_db` services remain hidden behind the network for security.
+### 3.2 Key Components
+- **Onboarding Wizard**: A state machine that guides users from Account Creation → Profile Setup → SMTP Connection.
+- **Campaign Dashboard**: Polling logic that fetches `pending`, `sent`, and `failed` contacts, giving the user a visual breakdown of their outreach funnel.
 
 ---
 
 ## 4. Privacy & Data Flow
 
-1. **Air-Gapped AI**: Your career data stays in the `ollama_llm` Docker volume. It is never uploaded to the cloud (no OpenAI/Anthropic involvement).
-2. **Environment Protection**: Sensitive keys are stored in `.env`. The `.gitignore` prevents these from ever reaching GitHub.
-3. **Local State**: The `contacts.db` is your "Gold Record." Even if the internet cuts out, your progress is saved locally.
+1. **Air-Gapped Credentials**: Users provide their own SMTP app passwords. The application authenticates natively with Gmail via `smtplib`, meaning we don't need OAuth verification or broad Google Workspace access.
+2. **Rate Limiting**: To protect users' Gmail reputation, the system enforces a strict `daily_limit` counter attached to their User model, ensuring they do not exceed typical consumer ISP caps.
 
 ---
 
 ## 5. Scaling for the Future
 
-**How to send 1,000+ emails?**
-1. **Multiple Gmails**: You would need to rotate `SMTP_USER` credentials.
-2. **Dedicated VPS**: Moving this to a cloud server (like DigitalOcean or AWS) would allow it to run 24/7 without your laptop being open.
-3. **CRM Integration**: Instead of SQLite, you could connect the n8n "Log Success" node directly to a Google Sheet or Airtable for visual tracking.
+**How to move from SQLite to PostgreSQL?**
+Because we use `SQLModel` and `SQLAlchemy`, migrating to Postgres is as simple as:
+1. Changing the `DATABASE_URL` in `.env` to a Postgres connection string.
+2. Updating `database.py` from `sqlite:///coldreach.db` to use `psycopg2`.
+3. Running migrations (if alembic is configured). This allows us to scale horizontally behind a load balancer.
